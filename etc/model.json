@@ -1,0 +1,16 @@
+{
+  "name": "My Pilot",
+  "vendor": "customendpoint",
+  "apiKey": "bedrock",
+  "apiType": "chat-completions",
+  "models": [
+    {
+      "id": "llama3.3:70b-bedrock",
+      "name": "llama3.3:70b-bedrock (My Pilot)",
+      "url": "https://c93k3wkr3g.execute-api.eu-west-2.amazonaws.com/prod/v1/chat/completions",
+      "apiType": "chat-completions",
+      "toolCalling": true,
+      "vision": false
+    }
+  ]
+}
