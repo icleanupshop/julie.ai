@@ -7,7 +7,10 @@ metadata:
     {{- include "julie.labels" . | nindent 4 }}
 spec:
   accessModes:
-    - ReadWriteOnce
+    - {{ .Values.knowledge.local.accessMode | quote }}
+  {{- with .Values.knowledge.local.storageClassName }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
   resources:
     requests:
       storage: {{ .Values.knowledge.local.vectorStore.storage }}
@@ -20,7 +23,10 @@ metadata:
     {{- include "julie.labels" . | nindent 4 }}
 spec:
   accessModes:
-    - ReadWriteOnce
+    - {{ .Values.knowledge.local.accessMode | quote }}
+  {{- with .Values.knowledge.local.storageClassName }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
   resources:
     requests:
       storage: {{ .Values.knowledge.local.embeddings.storage }}
@@ -63,6 +69,10 @@ spec:
         app.kubernetes.io/component: qdrant
     spec:
       automountServiceAccountToken: false
+      {{- with .Values.knowledge.local.vectorStore.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
@@ -142,6 +152,10 @@ spec:
         app.kubernetes.io/component: embeddings
     spec:
       automountServiceAccountToken: false
+      {{- with .Values.knowledge.local.embeddings.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: ollama
           image: {{ .Values.knowledge.local.embeddings.image | quote }}

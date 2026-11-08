@@ -47,7 +47,10 @@ knowledge:
     collection: julie_knowledge
   local:
     enabled: false
+    storageClassName: ""
+    accessMode: ReadWriteOnce
     embeddings:
+      nodeSelector: {}
       image: ollama/ollama:0.6.5
       model: nomic-embed-text
       storage: 5Gi
@@ -59,6 +62,7 @@ knowledge:
           cpu: "2"
           memory: 2Gi
     vectorStore:
+      nodeSelector: {}
       image: qdrant/qdrant:v1.13.4
       storage: 8Gi
       resources:

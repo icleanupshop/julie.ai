@@ -1,7 +1,18 @@
+nodeSelector:
+  kubernetes.io/hostname: pi-100-0-0-4
+
 knowledge:
   enabled: true
   local:
     enabled: true
+    storageClassName: nfs-client
+    accessMode: ReadWriteMany
+    embeddings:
+      nodeSelector:
+        kubernetes.io/hostname: pi-100-0-0-4
+    vectorStore:
+      nodeSelector:
+        kubernetes.io/hostname: rp4-01
 
 soul:
   existingConfigMap: julie-soul

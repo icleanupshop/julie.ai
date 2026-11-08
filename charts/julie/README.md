@@ -73,11 +73,20 @@ helm upgrade --install julie ./charts/julie \
 ```
 
 The chart provisions single-replica Deployments and persistent claims for both
-services. Qdrant creates the cosine-distance collection on first use, deriving
-the vector size from the embeddings response. The model weights and vector data
-survive pod replacement; back up their PVCs before maintenance. Ingest `.md`
-and `.txt` files explicitly with `-ingest`; see the root README for limits and
-the command. The local inference pod requests 512 MiB and is limited to 2 GiB.
+services. In the k3s profile, the claims use the `nfs-client` StorageClass with
+`ReadWriteMany`, so either pod can be rescheduled without being pinned to the
+node that first mounted its data. The profile schedules the agent and embeddings
+on `pi-100-0-0-4` and Qdrant on `rp4-01`; override the root `nodeSelector` or the
+per-service `knowledge.local.embeddings.nodeSelector` and
+`knowledge.local.vectorStore.nodeSelector` to change those targets. Other
+installations can set `knowledge.local.storageClassName` and
+`knowledge.local.accessMode` for their storage backend; the defaults retain the
+cluster's default class and use `ReadWriteOnce`. Qdrant creates the cosine-distance collection on first use,
+deriving the vector size from the embeddings response. The model weights and
+vector data survive pod replacement; back up their PVCs before maintenance.
+Ingest `.md` and `.txt` files explicitly with `-ingest`; see the root README for
+limits and the command. The local inference pod requests 512 MiB and is limited
+to 2 GiB.
 For a remote embeddings endpoint instead, set `knowledge.local.enabled=false`
 and configure `knowledge.embeddings` and `knowledge.vectorStore`.
 
