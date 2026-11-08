@@ -84,6 +84,18 @@ and configure `knowledge.embeddings` and `knowledge.vectorStore`.
 Document contents are sent to the in-cluster embedding service and persisted in
 Qdrant. Both services have ClusterIP-only access; ingest only approved material.
 
+## Reset Memory
+
+Run `./scripts/reset-julie-memory.sh --dry-run` to inspect the targets. To
+permanently delete all indexed documents, conversation memories, and session
+transcripts, run `./scripts/reset-julie-memory.sh` and type `RESET` when
+prompted. The script stops Julie, deletes the configured document and
+conversation Qdrant collections, clears the SQLite database on the sessions
+PVC using a temporary unprivileged pod, and restarts Julie. Collections are
+recreated on next use. This requires `kubectl`, `curl`, and `jq`; the active
+Kubernetes context must target the intended cluster. `JULIE_NAMESPACE`,
+`JULIE_RELEASE`, and `JULIE_RESET_IMAGE` can override the defaults.
+
 ## Soul File
 
 The k3s values file expects an operator-managed ConfigMap named `julie-soul`.
