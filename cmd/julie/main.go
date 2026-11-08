@@ -29,10 +29,11 @@ func run() error {
 	workspace := flag.String("workspace", ".", "Directory available to read-only workspace tools")
 	prompt := flag.String("prompt", "", "Ask a single question and exit")
 	listen := flag.String("listen", "", "Serve the HTTP API at this address")
+	mcpURL := flag.String("mcp-url", os.Getenv("JULIE_MCP_URL"), "MCP Streamable HTTP endpoint")
 	sessionsDB := flag.String("sessions-db", "julie-sessions.db", "Path to the persistent API sessions database")
 	ingest := flag.String("ingest", "", "Ingest a .md/.txt file or directory into the configured knowledge store")
 	soulFile := flag.String("soul-file", "", "Optional operator-provided identity and style guidance file")
-	noTools := flag.Bool("no-tools", false, "Disable workspace tools")
+	noTools := flag.Bool("no-tools", false, "Disable model-callable tools")
 	maxSteps := flag.Int("max-steps", 8, "Maximum model calls per question")
 	timeout := flag.Duration("timeout", 3*time.Minute, "Total timeout per question")
 	flag.Parse()
@@ -70,8 +71,24 @@ func run() error {
 		fmt.Printf("Ingested %d knowledge passages.\n", count)
 		return nil
 	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	var mcpTools *agent.MCPToolClient
+	if !*noTools && model.ToolCalling && *mcpURL != "" {
+		token := os.Getenv("JULIE_MCP_TOKEN")
+		if token == "" {
+			return fmt.Errorf("JULIE_MCP_TOKEN is required when JULIE_MCP_URL is set")
+		}
+		connectCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		mcpTools, err = connectMCP(connectCtx, *mcpURL, token)
+		cancel()
+		if err != nil {
+			return err
+		}
+		defer mcpTools.Close()
+	}
 	var root *os.Root
-	if !*noTools && model.ToolCalling {
+	if !*noTools && model.ToolCalling && *mcpURL == "" {
 		root, err = os.OpenRoot(*workspace)
 		if err != nil {
 			return fmt.Errorf("open workspace: %w", err)
@@ -80,8 +97,7 @@ func run() error {
 	}
 	julie := agent.NewWithSoul(agent.NewClient(config, model), root, *maxSteps, soul)
 	julie.Knowledge = store
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
+	julie.MCPTools = mcpTools
 	if *listen != "" {
 		sessionStore, err := sessions.Open(ctx, *sessionsDB)
 		if err != nil {
@@ -105,6 +121,7 @@ func run() error {
 			requestAgent := agent.NewWithSoul(julie.Client, root, *maxSteps, soul)
 			requestAgent.Knowledge = store
 			requestAgent.Memory = memoryStore
+			requestAgent.MCPTools = mcpTools
 			if len(history) > 40 {
 				history = history[len(history)-40:]
 			}
@@ -171,5 +188,25 @@ func run() error {
 			continue
 		}
 		fmt.Println("Julie:", answer)
+	}
+}
+
+func connectMCP(ctx context.Context, endpoint, token string) (*agent.MCPToolClient, error) {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	var lastErr error
+	for {
+		attemptCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		remote, err := agent.NewMCPToolClient(attemptCtx, endpoint, token)
+		cancel()
+		if err == nil {
+			return remote, nil
+		}
+		lastErr = err
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("connect MCP server: %v: %w", lastErr, ctx.Err())
+		case <-ticker.C:
+		}
 	}
 }

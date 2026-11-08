@@ -1,0 +1,140 @@
+{{- if .Values.mcp.enabled }}
+{{- if not .Values.mcp.workspace.existingClaim }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "julie.fullname" . }}-mcp-workspace
+  labels:
+    {{- include "julie.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.mcp.workspace.accessMode | quote }}
+  {{- with .Values.mcp.workspace.storageClassName }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.mcp.workspace.storage }}
+---
+{{- end }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "julie.fullname" . }}-mcp
+  labels:
+    {{- include "julie.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mcp
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "julie.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: mcp
+  ports:
+    - name: http
+      port: {{ .Values.mcp.port }}
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "julie.fullname" . }}-mcp
+  labels:
+    {{- include "julie.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mcp
+spec:
+  replicas: {{ .Values.mcp.replicas }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "julie.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: mcp
+  template:
+    metadata:
+      labels:
+        {{- include "julie.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: mcp
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      automountServiceAccountToken: false
+      {{- with .Values.mcp.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.mcp.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mcp
+          image: {{ printf "%s:%s" (required "image.repository is required" .Values.image.repository) .Values.image.tag | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/julie-mcp"]
+          args:
+            - "-listen"
+            - ":{{ .Values.mcp.port }}"
+            - "-config"
+            - "/etc/julie/model.json"
+            - "-workspace"
+            - "/workspace"
+          env:
+            - name: JULIE_MCP_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "mcp.existingSecret is required when MCP is enabled" .Values.mcp.existingSecret }}
+                  key: {{ .Values.mcp.tokenKey }}
+            - name: JULIE_EMBEDDING_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "credentials.existingSecret is required" .Values.credentials.existingSecret }}
+                  key: {{ .Values.credentials.embeddingApiKeyKey }}
+                  optional: true
+          ports:
+            - name: http
+              containerPort: {{ .Values.mcp.port }}
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 2
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml .Values.mcp.resources | nindent 12 }}
+          volumeMounts:
+            - name: model-config
+              mountPath: /etc/julie
+              readOnly: true
+            - name: workspace
+              mountPath: /workspace
+              readOnly: true
+      volumes:
+        - name: model-config
+          configMap:
+            name: {{ include "julie.fullname" . }}-config
+        - name: workspace
+          persistentVolumeClaim:
+            claimName: {{ .Values.mcp.workspace.existingClaim | default (printf "%s-mcp-workspace" (include "julie.fullname" .)) }}
+{{- end }}

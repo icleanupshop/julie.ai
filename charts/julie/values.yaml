@@ -33,6 +33,27 @@ workspace:
   toolsEnabled: false
   existingClaim: ""
 
+mcp:
+  enabled: false
+  port: 8081
+  existingSecret: ""
+  tokenKey: token
+  replicas: 1
+  nodeSelector: {}
+  affinity: {}
+  workspace:
+    existingClaim: ""
+    storage: 1Gi
+    storageClassName: ""
+    accessMode: ReadWriteOnce
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
 soul:
   existingConfigMap: ""
   key: soul.md

@@ -54,7 +54,7 @@ spec:
             - {{ .Values.agent.maxSteps | quote }}
             - "-timeout"
             - {{ .Values.agent.timeout | quote }}
-            {{- if not .Values.workspace.toolsEnabled }}
+            {{- if and (not .Values.workspace.toolsEnabled) (not .Values.mcp.enabled) }}
             - "-no-tools"
             {{- end }}
           env:
@@ -69,6 +69,15 @@ spec:
                   name: {{ .Values.credentials.existingSecret }}
                   key: {{ .Values.credentials.embeddingApiKeyKey }}
                   optional: true
+            {{- if .Values.mcp.enabled }}
+            - name: JULIE_MCP_URL
+              value: "http://{{ include "julie.fullname" . }}-mcp:{{ .Values.mcp.port }}/mcp"
+            - name: JULIE_MCP_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "mcp.existingSecret is required when MCP is enabled" .Values.mcp.existingSecret }}
+                  key: {{ .Values.mcp.tokenKey }}
+            {{- end }}
           ports:
             - name: http
               containerPort: 8080

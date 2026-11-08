@@ -31,6 +31,7 @@ type Agent struct {
 	Root      *os.Root
 	Knowledge KnowledgeSearcher
 	Memory    ConversationMemory
+	MCPTools  MCPToolProvider
 	MaxSteps  int
 	history   []Message
 }
@@ -130,11 +131,19 @@ func (agent *Agent) Ask(ctx context.Context, prompt string) (string, error) {
 	messages = append(messages, Message{Role: "user", Content: userContent})
 	var tools []Tool
 	if agent.Client.Model.ToolCalling {
-		if agent.Root != nil {
-			tools = append(tools, workspaceTools()...)
-		}
-		if agent.Knowledge != nil {
-			tools = append(tools, knowledgeTools()...)
+		if agent.MCPTools != nil {
+			var err error
+			tools, err = agent.MCPTools.Tools(ctx)
+			if err != nil {
+				return "", fmt.Errorf("discover MCP tools: %w", err)
+			}
+		} else {
+			if agent.Root != nil {
+				tools = append(tools, workspaceTools()...)
+			}
+			if agent.Knowledge != nil {
+				tools = append(tools, knowledgeTools()...)
+			}
 		}
 	}
 	for step := 0; step < agent.MaxSteps; step++ {
@@ -167,7 +176,12 @@ func (agent *Agent) Ask(ctx context.Context, prompt string) (string, error) {
 			if err := ctx.Err(); err != nil {
 				return "", err
 			}
-			result, err := agent.execute(ctx, call.Function)
+			var result string
+			if agent.MCPTools != nil {
+				result, err = agent.MCPTools.Call(ctx, call.Function)
+			} else {
+				result, err = agent.execute(ctx, call.Function)
+			}
 			if err != nil {
 				data, _ := json.Marshal(map[string]string{"error": err.Error()})
 				result = string(data)

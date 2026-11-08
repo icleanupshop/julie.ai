@@ -90,6 +90,28 @@ to 2 GiB.
 For a remote embeddings endpoint instead, set `knowledge.local.enabled=false`
 and configure `knowledge.embeddings` and `knowledge.vectorStore`.
 
+## MCP Tools
+
+The k3s profile enables the authenticated Streamable HTTP MCP service. It
+exposes `list_files`, `read_file`, and `search_knowledge` to Julie. The workspace
+is mounted read-only from an NFS-backed `ReadWriteMany` claim, so the service
+can be rescheduled to any eligible node without losing files. Populate the
+workspace claim through an operator-managed pod; the MCP service cannot modify
+it. The k3s profile prefers ARM nodes but can schedule the MCP pod on any node
+if needed. The MCP pod has no Kubernetes service-account token.
+
+Create the shared bearer-token Secret before installing the chart. The generated
+token is not written to the shell output:
+
+```sh
+openssl rand -hex 32 | kubectl create secret generic julie-mcp-auth \
+  --namespace julie --from-file=token=/dev/stdin
+```
+
+The service is exposed only as a ClusterIP. Julie and the MCP server receive the
+token from the Secret; do not expose the MCP service outside the cluster. If the
+token is rotated, restart both Deployments so they reload it.
+
 Document contents are sent to the in-cluster embedding service and persisted in
 Qdrant. Both services have ClusterIP-only access; ingest only approved material.
 

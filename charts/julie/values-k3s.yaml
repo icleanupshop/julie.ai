@@ -14,5 +14,22 @@ knowledge:
       nodeSelector:
         kubernetes.io/hostname: rp4-01
 
+mcp:
+  enabled: true
+  existingSecret: julie-mcp-auth
+  affinity:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          preference:
+            matchExpressions:
+              - key: kubernetes.io/arch
+                operator: In
+                values:
+                  - arm64
+  workspace:
+    storageClassName: nfs-client
+    accessMode: ReadWriteMany
+
 soul:
   existingConfigMap: julie-soul
