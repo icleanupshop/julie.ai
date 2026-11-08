@@ -1,0 +1,17 @@
+{{- if not .Values.sessions.existingClaim }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "julie.fullname" . }}-sessions
+  labels:
+    {{- include "julie.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.sessions.storage }}
+  {{- with .Values.sessions.storageClassName }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+{{- end }}

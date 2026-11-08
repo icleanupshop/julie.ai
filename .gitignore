@@ -29,6 +29,7 @@ go.work.sum
 .env
 
 /build/
+julie-sessions.db*
 
 # Editor/IDE
 # .idea/

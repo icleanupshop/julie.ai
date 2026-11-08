@@ -13,6 +13,7 @@ import (
 
 	"julie.ai/internal/agent"
 	"julie.ai/internal/knowledge"
+	"julie.ai/internal/sessions"
 )
 
 func main() {
@@ -27,7 +28,8 @@ func run() error {
 	modelID := flag.String("model", "", "Model ID (defaults to the first configured model)")
 	workspace := flag.String("workspace", ".", "Directory available to read-only workspace tools")
 	prompt := flag.String("prompt", "", "Ask a single question and exit")
-	listen := flag.String("listen", "", "Serve the HTTP API at this address (requires JULIE_AUTH_TOKEN)")
+	listen := flag.String("listen", "", "Serve the HTTP API at this address")
+	sessionsDB := flag.String("sessions-db", "julie-sessions.db", "Path to the persistent API sessions database")
 	ingest := flag.String("ingest", "", "Ingest a .md/.txt file or directory into the configured knowledge store")
 	soulFile := flag.String("soul-file", "", "Optional operator-provided identity and style guidance file")
 	noTools := flag.Bool("no-tools", false, "Disable workspace tools")
@@ -81,12 +83,49 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if *listen != "" {
-		token := os.Getenv("JULIE_AUTH_TOKEN")
-		if strings.TrimSpace(token) == "" {
-			return fmt.Errorf("JULIE_AUTH_TOKEN is required in server mode")
+		sessionStore, err := sessions.Open(ctx, *sessionsDB)
+		if err != nil {
+			return err
 		}
-		handler := newHTTPHandler(token, *timeout, func(requestCtx context.Context, question string) (string, error) {
-			return agent.NewWithSoul(julie.Client, root, *maxSteps, soul).Ask(requestCtx, question)
+		defer sessionStore.Close()
+		var memoryStore *knowledge.Store
+		if store != nil {
+			memoryVectors := config.VectorStore
+			collection := memoryVectors.Collection
+			if collection == "" {
+				collection = "julie_knowledge"
+			}
+			memoryVectors.Collection = collection + "_conversations"
+			memoryStore, err = knowledge.NewStore(config.Embeddings, memoryVectors, config.EmbeddingAPIKey)
+			if err != nil {
+				return err
+			}
+		}
+		handler := newHTTPHandler(*timeout, sessionStore, func(requestCtx context.Context, sessionID string, history []sessions.Message, question string) (string, error) {
+			requestAgent := agent.NewWithSoul(julie.Client, root, *maxSteps, soul)
+			requestAgent.Knowledge = store
+			requestAgent.Memory = memoryStore
+			if len(history) > 40 {
+				history = history[len(history)-40:]
+			}
+			messages := make([]agent.Message, len(history))
+			for index, message := range history {
+				messages[index] = agent.Message{Role: message.Role, Content: message.Content}
+			}
+			if err := requestAgent.SetHistory(messages); err != nil {
+				return "", err
+			}
+			return requestAgent.Ask(requestCtx, question)
+		}, func(requestCtx context.Context, sessionID string, turnID int64, question, answer string) error {
+			if memoryStore == nil {
+				return nil
+			}
+			return memoryStore.RememberConversation(requestCtx, sessionID, turnID, question, answer)
+		}, func(requestCtx context.Context, sessionID string) error {
+			if memoryStore == nil {
+				return nil
+			}
+			return memoryStore.DeleteConversation(requestCtx, sessionID)
 		})
 		return serveHTTP(ctx, *listen, handler, *timeout)
 	}

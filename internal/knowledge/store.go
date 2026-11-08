@@ -42,6 +42,8 @@ type Store struct {
 	vectorSize     int
 }
 
+const maxConversationMemoryRunes = 32 << 10
+
 func NewStore(embedding EmbeddingConfig, vectors VectorStoreConfig, apiKey string) (*Store, error) {
 	if embedding.URL == "" && vectors.URL == "" {
 		return nil, nil
@@ -116,6 +118,64 @@ func (store *Store) Search(ctx context.Context, query string, limit int) ([]Resu
 		}
 	}
 	return results, nil
+}
+
+func (store *Store) SearchMemory(ctx context.Context, query string, limit int) ([]Result, error) {
+	return store.Search(ctx, query, limit)
+}
+
+func (store *Store) RememberConversation(ctx context.Context, sessionID string, turnID int64, prompt, answer string) error {
+	if strings.TrimSpace(sessionID) == "" || turnID < 1 || strings.TrimSpace(prompt) == "" || strings.TrimSpace(answer) == "" {
+		return fmt.Errorf("session, turn, prompt, and answer are required for conversation memory")
+	}
+	text := "User: " + prompt + "\nJulie: " + answer
+	runes := []rune(text)
+	if len(runes) > maxConversationMemoryRunes {
+		text = string(runes[:maxConversationMemoryRunes])
+	}
+	chunks := splitChunks(text)
+	points := make([]point, 0, len(chunks))
+	source := "conversation/" + sessionID
+	for index, chunk := range chunks {
+		vector, err := store.embed(ctx, chunk)
+		if err != nil {
+			return fmt.Errorf("embed conversation memory: %w", err)
+		}
+		if err := store.ensureCollection(ctx, len(vector)); err != nil {
+			return err
+		}
+		points = append(points, point{
+			ID:     pointID(fmt.Sprintf("%s/%d", source, turnID), index, chunk),
+			Vector: vector,
+			Payload: map[string]any{
+				"source":     source,
+				"session_id": sessionID,
+				"turn_id":    turnID,
+				"text":       chunk,
+			},
+		})
+	}
+	for start := 0; start < len(points); start += upsertBatchSize {
+		end := min(start+upsertBatchSize, len(points))
+		if err := store.qdrant(ctx, http.MethodPut, "/points?wait=true", map[string]any{"points": points[start:end]}, nil); err != nil {
+			return fmt.Errorf("store conversation memory: %w", err)
+		}
+	}
+	return nil
+}
+
+func (store *Store) DeleteConversation(ctx context.Context, sessionID string) error {
+	if strings.TrimSpace(sessionID) == "" {
+		return fmt.Errorf("session ID is required")
+	}
+	request := map[string]any{"filter": map[string]any{
+		"must": []any{map[string]any{"key": "session_id", "match": map[string]string{"value": sessionID}}},
+	}}
+	err := store.qdrant(ctx, http.MethodPost, "/points/delete?wait=true", request, nil)
+	if err != nil && err.Error() == "vector store returned HTTP 404" {
+		return nil
+	}
+	return err
 }
 
 func (store *Store) embed(ctx context.Context, text string) ([]float64, error) {

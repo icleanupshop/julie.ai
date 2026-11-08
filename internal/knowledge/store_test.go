@@ -116,6 +116,101 @@ func TestIngestAndSearch(t *testing.T) {
 	}
 }
 
+func TestConversationMemoryLifecycle(t *testing.T) {
+	var collectionCreated, upserted, deleted int
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch {
+		case request.Method == http.MethodPost && request.URL.Path == "/v1/embeddings":
+			var payload map[string]string
+			if err := json.NewDecoder(request.Body).Decode(&payload); err != nil || payload["input"] == "" {
+				t.Errorf("unexpected embedding request: %+v err=%v", payload, err)
+			}
+			_, _ = writer.Write([]byte(`{"data":[{"embedding":[0.25,0.75]}]}`))
+		case request.Method == http.MethodGet && request.URL.Path == "/collections/memories":
+			if collectionCreated == 0 {
+				http.NotFound(writer, request)
+				return
+			}
+			_, _ = writer.Write([]byte(`{"result":{"config":{"params":{"vectors":{"size":2,"distance":"Cosine"}}}}}`))
+		case request.Method == http.MethodPut && request.URL.Path == "/collections/memories":
+			collectionCreated++
+			_, _ = writer.Write([]byte(`{"result":true,"status":"ok"}`))
+		case request.Method == http.MethodPut && request.URL.Path == "/collections/memories/points":
+			var payload struct {
+				Points []point `json:"points"`
+			}
+			if err := json.NewDecoder(request.Body).Decode(&payload); err != nil || len(payload.Points) != 1 {
+				t.Errorf("unexpected memory upsert: %+v err=%v", payload, err)
+			} else {
+				point := payload.Points[0]
+				if point.Payload["session_id"] != "session-1" || point.Payload["turn_id"] != float64(7) || !strings.Contains(point.Payload["text"].(string), "User: prompt") {
+					t.Errorf("unexpected memory payload: %+v", point.Payload)
+				}
+			}
+			upserted++
+			_, _ = writer.Write([]byte(`{"result":{"operation_id":1},"status":"ok"}`))
+		case request.Method == http.MethodPost && request.URL.Path == "/collections/memories/points/search":
+			_, _ = writer.Write([]byte(`{"result":[{"score":0.9,"payload":{"source":"conversation/session-1","text":"User: prompt\nJulie: answer"}}]}`))
+		case request.Method == http.MethodPost && request.URL.Path == "/collections/memories/points/delete":
+			var payload struct {
+				Filter struct {
+					Must []struct {
+						Key   string `json:"key"`
+						Match struct {
+							Value string `json:"value"`
+						} `json:"match"`
+					} `json:"must"`
+				} `json:"filter"`
+			}
+			if err := json.NewDecoder(request.Body).Decode(&payload); err != nil || !strings.Contains(request.URL.RawQuery, "wait=true") {
+				t.Errorf("unexpected memory deletion: %+v err=%v", payload, err)
+			} else if len(payload.Filter.Must) != 1 || payload.Filter.Must[0].Key != "session_id" || payload.Filter.Must[0].Match.Value != "session-1" {
+				t.Errorf("memory deletion was not scoped to the session: %+v", payload.Filter)
+			}
+			deleted++
+			_, _ = writer.Write([]byte(`{"result":{"operation_id":2},"status":"ok"}`))
+		default:
+			t.Errorf("unexpected request: %s %s", request.Method, request.URL.String())
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	store, err := NewStore(EmbeddingConfig{URL: server.URL + "/v1/embeddings", Model: "embed-test"}, VectorStoreConfig{URL: server.URL, Collection: "memories"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RememberConversation(context.Background(), "session-1", 7, "prompt", "answer"); err != nil {
+		t.Fatal(err)
+	}
+	results, err := store.SearchMemory(context.Background(), "related prompt", 3)
+	if err != nil || len(results) != 1 || results[0].Source != "conversation/session-1" {
+		t.Fatalf("results=%+v err=%v", results, err)
+	}
+	if err := store.DeleteConversation(context.Background(), "session-1"); err != nil {
+		t.Fatal(err)
+	}
+	if collectionCreated != 1 || upserted != 1 || deleted != 1 {
+		t.Fatalf("created=%d upserted=%d deleted=%d", collectionCreated, upserted, deleted)
+	}
+}
+
+func TestDeleteConversationBeforeMemoryCollectionExists(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost || request.URL.Path != "/collections/memories/points/delete" {
+			t.Errorf("unexpected request: %s %s", request.Method, request.URL.Path)
+		}
+		http.NotFound(writer, request)
+	}))
+	defer server.Close()
+	store, err := NewStore(EmbeddingConfig{URL: server.URL + "/v1/embeddings", Model: "embed-test"}, VectorStoreConfig{URL: server.URL, Collection: "memories"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.DeleteConversation(context.Background(), "empty-session"); err != nil {
+		t.Fatalf("delete without a memory collection: %v", err)
+	}
+}
+
 func TestNewStoreRequiresCompleteConfiguration(t *testing.T) {
 	if store, err := NewStore(EmbeddingConfig{}, VectorStoreConfig{}, ""); err != nil || store != nil {
 		t.Fatalf("store=%v err=%v", store, err)

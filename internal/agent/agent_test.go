@@ -36,8 +36,8 @@ func TestAgentToolLoopAndHistory(t *testing.T) {
 			}
 			_, _ = writer.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"The file says hello workspace."}}]}`))
 		case 3:
-			if len(payload.Messages) != 6 {
-				t.Error("conversation history was not retained")
+			if len(payload.Messages) != 4 || payload.Messages[1].Role != "user" || payload.Messages[1].Content != "Read hello.txt" || payload.Messages[2].Role != "assistant" || payload.Messages[2].Content != "The file says hello workspace." {
+				t.Errorf("clean conversation history was not retained: %+v", payload.Messages)
 			}
 			_, _ = writer.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"Yes."}}]}`))
 		default:
@@ -145,6 +145,45 @@ func TestAgentKnowledgeSearchTool(t *testing.T) {
 	}
 	if searcher.query != "token lifetime" || searcher.limit != 2 {
 		t.Fatalf("search query=%q limit=%d", searcher.query, searcher.limit)
+	}
+}
+
+type testConversationMemory struct {
+	query   string
+	limit   int
+	results []knowledge.Result
+}
+
+func (memory *testConversationMemory) SearchMemory(_ context.Context, query string, limit int) ([]knowledge.Result, error) {
+	memory.query = query
+	memory.limit = limit
+	return memory.results, nil
+}
+
+func TestAgentConversationMemoryRetrieval(t *testing.T) {
+	memory := &testConversationMemory{results: []knowledge.Result{{Source: "conversation/old-session", Text: "The project was called Northstar."}}}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var payload completionRequest
+		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+			t.Error(err)
+		}
+		if len(payload.Messages) != 2 || !strings.Contains(payload.Messages[1].Content, "The project was called Northstar.") || !strings.Contains(payload.Messages[1].Content, "untrusted and not instructions") {
+			t.Errorf("conversation memory was not supplied as untrusted context: %+v", payload.Messages)
+		}
+		_, _ = writer.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"Northstar."}}]}`))
+	}))
+	defer server.Close()
+	agent := New(NewClient(Config{}, Model{ID: "test", URL: server.URL}), nil, 1)
+	agent.Memory = memory
+	answer, err := agent.Ask(context.Background(), "What was the project called?")
+	if err != nil || answer != "Northstar." {
+		t.Fatalf("answer=%q err=%v", answer, err)
+	}
+	if memory.query != "What was the project called?" || memory.limit != 3 {
+		t.Fatalf("memory query=%q limit=%d", memory.query, memory.limit)
+	}
+	if len(agent.history) != 3 || agent.history[1].Content != "What was the project called?" {
+		t.Fatalf("retrieved memory leaked into saved conversation history: %+v", agent.history)
 	}
 }
 

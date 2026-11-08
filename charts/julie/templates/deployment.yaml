@@ -1,3 +1,6 @@
+{{- if ne (int .Values.replicaCount) 1 }}
+{{- fail "SQLite-backed sessions require replicaCount=1" }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -41,6 +44,8 @@ spec:
             - "/etc/julie/model.json"
             - "-workspace"
             - "/workspace"
+            - "-sessions-db"
+            - "/var/lib/julie/sessions.db"
             {{- if .Values.soul.existingConfigMap }}
             - "-soul-file"
             - "/run/julie-soul/soul.md"
@@ -58,11 +63,6 @@ spec:
                 secretKeyRef:
                   name: {{ required "credentials.existingSecret is required" .Values.credentials.existingSecret }}
                   key: {{ .Values.credentials.apiKeyKey }}
-            - name: JULIE_AUTH_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.credentials.existingSecret }}
-                  key: {{ .Values.credentials.authTokenKey }}
             - name: JULIE_EMBEDDING_API_KEY
               valueFrom:
                 secretKeyRef:
@@ -102,6 +102,8 @@ spec:
             - name: workspace
               mountPath: /workspace
               readOnly: true
+            - name: sessions
+              mountPath: /var/lib/julie
             {{- if .Values.soul.existingConfigMap }}
             - name: soul
               mountPath: /run/julie-soul
@@ -127,6 +129,9 @@ spec:
           {{- else }}
           emptyDir: {}
           {{- end }}
+        - name: sessions
+          persistentVolumeClaim:
+            claimName: {{ .Values.sessions.existingClaim | default (printf "%s-sessions" (include "julie.fullname" .)) }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

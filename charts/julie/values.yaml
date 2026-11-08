@@ -13,8 +13,12 @@ service:
 credentials:
   existingSecret: julie-credentials
   apiKeyKey: api-key
-  authTokenKey: auth-token
   embeddingApiKeyKey: embedding-api-key
+
+sessions:
+  existingClaim: ""
+  storage: 1Gi
+  storageClassName: ""
 
 model:
   id: "llama3.3:70b-bedrock"

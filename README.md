@@ -70,18 +70,32 @@ Tests use local mock servers and never call the configured live endpoint.
 
 ## HTTP API and Kubernetes
 
-For a long-running service, set `JULIE_AUTH_TOKEN` securely in your environment
-and start server mode:
+For a long-running service, start server mode:
 
 ```sh
 go run ./cmd/julie -listen :8080 -no-tools
 ```
 
-`POST /ask` accepts `{"prompt":"..."}` with an
-`Authorization: Bearer <JULIE_AUTH_TOKEN>` header and returns `{"answer":"..."}`.
-Each request starts a separate conversation. `GET /healthz` is unauthenticated
-and does not call the model. Server mode requires a nonempty token and shuts down
-gracefully on SIGTERM. Use TLS termination before exposing the API externally.
+`POST /sessions` creates a conversation and returns its opaque `session_id`.
+Post turns to `/sessions/{session_id}/messages`, read its transcript with
+`GET /sessions/{session_id}`, and delete it with `DELETE /sessions/{session_id}`.
+`POST /ask` remains available for a one-off request without creating a session;
+when memory is configured it can still retrieve relevant prior turns. The API
+does not require caller tokens or check session ownership: possession of a
+session ID allows reading or deleting that session, and conversation memories
+are shared across all sessions. Keep it on a trusted network. Server mode shuts
+down gracefully on SIGTERM.
+
+For an interactive Bash client, with `curl` and `jq` installed and the API
+reachable at `http://localhost:8080`:
+
+```sh
+./scripts/julie-chat.sh
+```
+
+Set `JULIE_API_URL` to use another API address. The shell starts a new session;
+`/history` displays its transcript, `/new` starts another session, `/delete`
+removes the current session, and `/exit` keeps it for later.
 
 The [Helm chart](charts/julie/README.md) includes container build, Secret setup,
 installation, and API access instructions. The container does not include model
@@ -110,9 +124,12 @@ configuration first. Set `JULIE_EMBEDDING_API_KEY` separately from
 can then call `search_knowledge`; retrieved content is untrusted evidence, and
 answers should cite the returned source names.
 
-Document text is sent to the embedding provider and stored in Qdrant. Ingest
-only approved documents. This stage does not crawl the web, ingest PDFs, or save
-conversations.
+Document text and, when the HTTP API uses configured embeddings and Qdrant,
+conversation turns are sent to the embedding provider. Document vectors and
+conversation memories use separate collections. Conversation memories are
+shared across sessions; deleting a session removes its SQLite transcript and
+Qdrant memories. Session transcripts are persisted to `julie-sessions.db` by
+default, configurable with `-sessions-db`. Ingest only approved documents.
 
 ## Make Workflow
 
