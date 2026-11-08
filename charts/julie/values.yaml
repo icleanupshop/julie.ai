@@ -1,0 +1,76 @@
+replicaCount: 1
+
+image:
+  repository: julie
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+service:
+  port: 8080
+
+credentials:
+  existingSecret: julie-credentials
+  apiKeyKey: api-key
+  authTokenKey: auth-token
+  embeddingApiKeyKey: embedding-api-key
+
+model:
+  id: "llama3.3:70b-bedrock"
+  url: "https://c93k3wkr3g.execute-api.eu-west-2.amazonaws.com/prod/v1/chat/completions"
+  toolCalling: true
+
+agent:
+  maxSteps: 8
+  timeout: "3m"
+
+workspace:
+  toolsEnabled: false
+  existingClaim: ""
+
+knowledge:
+  enabled: false
+  embeddings:
+    url: ""
+    model: ""
+  vectorStore:
+    url: ""
+    collection: julie_knowledge
+  local:
+    enabled: false
+    embeddings:
+      image: ollama/ollama:0.6.5
+      model: nomic-embed-text
+      storage: 5Gi
+      resources:
+        requests:
+          cpu: 500m
+          memory: 512Mi
+        limits:
+          cpu: "2"
+          memory: 2Gi
+    vectorStore:
+      image: qdrant/qdrant:v1.13.4
+      storage: 8Gi
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          cpu: "1"
+          memory: 1Gi
+
+terminationGracePeriodSeconds: 200
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 64Mi
+  limits:
+    cpu: "1"
+    memory: 256Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

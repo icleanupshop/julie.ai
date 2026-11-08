@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "julie.fullname" . }}
+  labels:
+    {{- include "julie.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "julie.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: agent

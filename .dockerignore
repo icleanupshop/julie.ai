@@ -1,0 +1,11 @@
+.git
+.github
+.env
+.env.*
+etc
+charts
+README.md
+*.out
+*.test
+coverage.*
+build

@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"julie.ai/internal/knowledge"
 )
 
 func TestAgentToolLoopAndHistory(t *testing.T) {
@@ -57,6 +59,56 @@ func TestAgentToolLoopAndHistory(t *testing.T) {
 	}
 }
 
+type testKnowledge struct {
+	query string
+	limit int
+}
+
+func (searcher *testKnowledge) Search(_ context.Context, query string, limit int) ([]knowledge.Result, error) {
+	searcher.query = query
+	searcher.limit = limit
+	return []knowledge.Result{{Source: "notes/guide.md", Title: "Guide", Text: "Use short-lived tokens.", Score: 0.9}}, nil
+}
+
+func TestAgentKnowledgeSearchTool(t *testing.T) {
+	searcher := &testKnowledge{}
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requests++
+		var payload completionRequest
+		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+			t.Error(err)
+		}
+		switch requests {
+		case 1:
+			if len(payload.Tools) != 1 || payload.Tools[0].Function.Name != "search_knowledge" {
+				t.Fatalf("expected knowledge search tool, got %+v", payload.Tools)
+			}
+			if !strings.Contains(payload.Messages[1].Content, "notes/guide.md") || !strings.Contains(payload.Messages[1].Content, "Use short-lived tokens.") {
+				t.Errorf("retrieved passages were not included before generation: %q", payload.Messages[1].Content)
+			}
+			_, _ = writer.Write([]byte(`{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"search-1","type":"function","function":{"name":"search_knowledge","arguments":"{\"query\":\"token lifetime\",\"limit\":2}"}}]}}]}`))
+		case 2:
+			if len(payload.Messages) != 4 || payload.Messages[3].Role != "tool" || !strings.Contains(payload.Messages[3].Content, "notes/guide.md") {
+				t.Errorf("search evidence was not passed to the model: %+v", payload.Messages)
+			}
+			_, _ = writer.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"Use short-lived tokens (notes/guide.md)."}}]}`))
+		default:
+			t.Error("unexpected model request")
+		}
+	}))
+	defer server.Close()
+	agent := New(NewClient(Config{}, Model{ID: "test", URL: server.URL, ToolCalling: true}), nil, 3)
+	agent.Knowledge = searcher
+	answer, err := agent.Ask(context.Background(), "What does the guide recommend?")
+	if err != nil || answer != "Use short-lived tokens (notes/guide.md)." {
+		t.Fatalf("answer=%q err=%v", answer, err)
+	}
+	if searcher.query != "token lifetime" || searcher.limit != 2 {
+		t.Fatalf("search query=%q limit=%d", searcher.query, searcher.limit)
+	}
+}
+
 func TestAgentStepLimitAndDisabledTools(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		_, _ = writer.Write([]byte(`{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call","type":"function","function":{"name":"list_files","arguments":"{\"path\":\".\"}"}}]}}]}`))
@@ -86,10 +138,10 @@ func TestAgentStepLimitAndDisabledTools(t *testing.T) {
 func TestWorkspaceTools(t *testing.T) {
 	root := testWorkspace(t)
 	agent := New(nil, root, 2)
-	if result, err := agent.execute(FunctionCall{Name: "read_file", Arguments: `{"path":"hello.txt"}`}); err != nil || result != "hello workspace" {
+	if result, err := agent.execute(context.Background(), FunctionCall{Name: "read_file", Arguments: `{"path":"hello.txt"}`}); err != nil || result != "hello workspace" {
 		t.Fatalf("result=%q err=%v", result, err)
 	}
-	if result, err := agent.execute(FunctionCall{Name: "list_files", Arguments: `{"path":"."}`}); err != nil || !strings.Contains(result, "hello.txt") {
+	if result, err := agent.execute(context.Background(), FunctionCall{Name: "list_files", Arguments: `{"path":"."}`}); err != nil || !strings.Contains(result, "hello.txt") {
 		t.Fatalf("result=%q err=%v", result, err)
 	}
 	for _, call := range []FunctionCall{
@@ -103,7 +155,7 @@ func TestWorkspaceTools(t *testing.T) {
 		{Name: "read_file", Arguments: `{}`},
 		{Name: "shell", Arguments: `{"path":"."}`},
 	} {
-		if _, err := agent.execute(call); err == nil {
+		if _, err := agent.execute(context.Background(), call); err == nil {
 			t.Errorf("expected rejection for %+v", call)
 		}
 	}

@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "registry.fullname" . }}
+  labels:
+    {{- include "registry.labels" . | nindent 4 }}
+data:
+  config.yml: |
+    version: 0.1
+    log:
+      level: info
+    storage:
+      filesystem:
+        rootdirectory: /var/lib/registry
+    http:
+      addr: :5000
+      {{- if .Values.tls.existingSecret }}
+      tls:
+        certificate: /etc/registry/tls/tls.crt
+        key: /etc/registry/tls/tls.key
+      {{- end }}
+    {{- if .Values.auth.existingSecret }}
+    auth:
+      htpasswd:
+        realm: Registry
+        path: /etc/registry/auth/htpasswd
+    {{- end }}

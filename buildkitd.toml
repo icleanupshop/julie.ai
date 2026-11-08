@@ -1,0 +1,2 @@
+[registry."100.0.0.2:30500"]
+  http = true

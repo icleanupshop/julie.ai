@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"julie.ai/internal/agent"
+	"julie.ai/internal/knowledge"
 )
 
 func main() {
@@ -26,6 +27,8 @@ func run() error {
 	modelID := flag.String("model", "", "Model ID (defaults to the first configured model)")
 	workspace := flag.String("workspace", ".", "Directory available to read-only workspace tools")
 	prompt := flag.String("prompt", "", "Ask a single question and exit")
+	listen := flag.String("listen", "", "Serve the HTTP API at this address (requires JULIE_AUTH_TOKEN)")
+	ingest := flag.String("ingest", "", "Ingest a .md/.txt file or directory into the configured knowledge store")
 	noTools := flag.Bool("no-tools", false, "Disable workspace tools")
 	maxSteps := flag.Int("max-steps", 8, "Maximum model calls per question")
 	timeout := flag.Duration("timeout", 3*time.Minute, "Total timeout per question")
@@ -36,9 +39,29 @@ func run() error {
 	if *maxSteps < 1 || *timeout <= 0 {
 		return fmt.Errorf("max-steps and timeout must be positive")
 	}
+	if (*listen != "" && *prompt != "") || (*ingest != "" && (*listen != "" || *prompt != "")) {
+		return fmt.Errorf("ingest, listen, and prompt modes cannot be combined")
+	}
 	config, model, err := agent.LoadConfig(*configPath, *modelID)
 	if err != nil {
 		return err
+	}
+	store, err := knowledge.NewStore(config.Embeddings, config.VectorStore, config.EmbeddingAPIKey)
+	if err != nil {
+		return err
+	}
+	if *ingest != "" {
+		if store == nil {
+			return fmt.Errorf("knowledge store is not configured")
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), *timeout)
+		defer cancel()
+		count, err := store.IngestPath(ctx, *ingest)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Ingested %d knowledge passages.\n", count)
+		return nil
 	}
 	var root *os.Root
 	if !*noTools && model.ToolCalling {
@@ -49,8 +72,19 @@ func run() error {
 		defer root.Close()
 	}
 	julie := agent.New(agent.NewClient(config, model), root, *maxSteps)
+	julie.Knowledge = store
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if *listen != "" {
+		token := os.Getenv("JULIE_AUTH_TOKEN")
+		if strings.TrimSpace(token) == "" {
+			return fmt.Errorf("JULIE_AUTH_TOKEN is required in server mode")
+		}
+		handler := newHTTPHandler(token, *timeout, func(requestCtx context.Context, question string) (string, error) {
+			return agent.New(julie.Client, root, *maxSteps).Ask(requestCtx, question)
+		})
+		return serveHTTP(ctx, *listen, handler, *timeout)
+	}
 	ask := func(question string) (string, error) {
 		turnCtx, cancel := context.WithTimeout(ctx, *timeout)
 		defer cancel()

@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "julie.fullname" . }}-config
+  labels:
+    {{- include "julie.labels" . | nindent 4 }}
+data:
+  model.json: |
+    {{- $model := dict "id" (required "model.id is required" .Values.model.id) "url" (required "model.url is required" .Values.model.url) "apiType" "chat-completions" "toolCalling" .Values.model.toolCalling -}}
+    {{- $embeddings := dict "url" "" "model" "" -}}
+    {{- $vectorStore := dict "url" "" "collection" "" -}}
+    {{- if .Values.knowledge.enabled -}}
+    {{- $embeddingURL := .Values.knowledge.embeddings.url -}}
+    {{- $embeddingModel := .Values.knowledge.embeddings.model -}}
+    {{- $vectorURL := .Values.knowledge.vectorStore.url -}}
+    {{- if .Values.knowledge.local.enabled -}}
+    {{- $embeddingURL = printf "http://%s-embeddings:11434/v1/embeddings" (include "julie.fullname" .) -}}
+    {{- $embeddingModel = .Values.knowledge.local.embeddings.model -}}
+    {{- $vectorURL = printf "http://%s-qdrant:6333" (include "julie.fullname" .) -}}
+    {{- end -}}
+    {{- $_ := set $embeddings "url" (required "knowledge.embeddings.url is required when knowledge.enabled and local services are disabled" $embeddingURL) -}}
+    {{- $_ := set $embeddings "model" (required "knowledge.embeddings.model is required when knowledge.enabled and local services are disabled" $embeddingModel) -}}
+    {{- $_ := set $vectorStore "url" (required "knowledge.vectorStore.url is required when knowledge.enabled and local services are disabled" $vectorURL) -}}
+    {{- $_ := set $vectorStore "collection" (.Values.knowledge.vectorStore.collection | default "julie_knowledge") -}}
+    {{- end -}}
+    {{- dict "apiKey" "" "apiType" "chat-completions" "models" (list $model) "embeddings" $embeddings "vectorStore" $vectorStore | toPrettyJson | nindent 4 }}

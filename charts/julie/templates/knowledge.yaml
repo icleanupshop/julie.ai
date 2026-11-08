@@ -1,0 +1,179 @@
+{{- if and .Values.knowledge.enabled .Values.knowledge.local.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "julie.fullname" . }}-qdrant
+  labels:
+    {{- include "julie.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.knowledge.local.vectorStore.storage }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "julie.fullname" . }}-embeddings
+  labels:
+    {{- include "julie.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.knowledge.local.embeddings.storage }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "julie.fullname" . }}-qdrant
+  labels:
+    {{- include "julie.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "julie.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: qdrant
+  ports:
+    - name: http
+      port: 6333
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "julie.fullname" . }}-qdrant
+  labels:
+    {{- include "julie.labels" . | nindent 4 }}
+    app.kubernetes.io/component: qdrant
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "julie.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: qdrant
+  template:
+    metadata:
+      labels:
+        {{- include "julie.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: qdrant
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: qdrant
+          image: {{ .Values.knowledge.local.vectorStore.image | quote }}
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: QDRANT__STORAGE__SNAPSHOTS_PATH
+              value: /qdrant/storage/snapshots
+          ports:
+            - name: http
+              containerPort: 6333
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: http
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml .Values.knowledge.local.vectorStore.resources | nindent 12 }}
+          volumeMounts:
+            - name: storage
+              mountPath: /qdrant/storage
+      volumes:
+        - name: storage
+          persistentVolumeClaim:
+            claimName: {{ include "julie.fullname" . }}-qdrant
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "julie.fullname" . }}-embeddings
+  labels:
+    {{- include "julie.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "julie.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: embeddings
+  ports:
+    - name: http
+      port: 11434
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "julie.fullname" . }}-embeddings
+  labels:
+    {{- include "julie.labels" . | nindent 4 }}
+    app.kubernetes.io/component: embeddings
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "julie.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: embeddings
+  template:
+    metadata:
+      labels:
+        {{- include "julie.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: embeddings
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ollama
+          image: {{ .Values.knowledge.local.embeddings.image | quote }}
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: OLLAMA_HOST
+              value: 0.0.0.0:11434
+          ports:
+            - name: http
+              containerPort: 11434
+          startupProbe:
+            httpGet:
+              path: /api/tags
+              port: http
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /api/tags
+              port: http
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml .Values.knowledge.local.embeddings.resources | nindent 12 }}
+          volumeMounts:
+            - name: storage
+              mountPath: /root/.ollama
+      volumes:
+        - name: storage
+          persistentVolumeClaim:
+            claimName: {{ include "julie.fullname" . }}-embeddings
+{{- end }}

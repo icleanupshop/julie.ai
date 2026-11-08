@@ -1,0 +1,6 @@
+apiVersion: v2
+name: julie
+description: Julie Go AI agent HTTP API
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

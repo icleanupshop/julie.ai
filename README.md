@@ -67,3 +67,112 @@ go vet ./...
 ```
 
 Tests use local mock servers and never call the configured live endpoint.
+
+## HTTP API and Kubernetes
+
+For a long-running service, set `JULIE_AUTH_TOKEN` securely in your environment
+and start server mode:
+
+```sh
+go run ./cmd/julie -listen :8080 -no-tools
+```
+
+`POST /ask` accepts `{"prompt":"..."}` with an
+`Authorization: Bearer <JULIE_AUTH_TOKEN>` header and returns `{"answer":"..."}`.
+Each request starts a separate conversation. `GET /healthz` is unauthenticated
+and does not call the model. Server mode requires a nonempty token and shuts down
+gracefully on SIGTERM. Use TLS termination before exposing the API externally.
+
+The [Helm chart](charts/julie/README.md) includes container build, Secret setup,
+installation, and API access instructions. The container does not include model
+configuration or credentials; Helm mounts the configuration and references an
+existing Kubernetes Secret.
+
+## Document Knowledge
+
+Document retrieval is disabled unless `embeddings.url`, `embeddings.model`, and
+`vectorStore.url` are configured. The embedding endpoint is independent of the
+chat-completions model. Julie creates a cosine-distance Qdrant collection on
+first use; vector dimensions are taken from the first embedding response.
+
+The initial ingestion path accepts `.md` and `.txt` files or directories, with a
+1 MiB per-file limit and at most 200 files per directory run. It splits text into
+overlapping passages, stores source/title/content-hash metadata, and replaces
+previous passages for the same source. Ingestion is explicit:
+
+```sh
+go run ./cmd/julie -config etc/model.json -ingest ./documents
+```
+
+Configure the `embeddings` and `vectorStore` objects in the selected model
+configuration first. Set `JULIE_EMBEDDING_API_KEY` separately from
+`JULIE_API_KEY` when the embedding service requires authentication. The model
+can then call `search_knowledge`; retrieved content is untrusted evidence, and
+answers should cite the returned source names.
+
+Document text is sent to the embedding provider and stored in Qdrant. Ingest
+only approved documents. This stage does not crawl the web, ingest PDFs, or save
+conversations.
+
+## Make Workflow
+
+GNU Make and Go 1.24+ are required. AMD means Linux `amd64` (x86-64); ARM means
+Linux `arm64` (AArch64), matching the current k3s nodes.
+
+```sh
+make check
+```
+
+This runs native race tests and `go vet`, builds both agent binaries under
+`build/amd64` and `build/arm64`, and cross-compiles test binaries. Cross-compiling
+tests does not execute them on the other CPU architecture.
+
+Install Docker Buildx to run per-architecture tests and publish images:
+
+```sh
+make test-amd64
+make test-arm64
+make test-platforms
+```
+
+The Buildx test stage executes the full suite on each selected architecture.
+The non-native platform needs working QEMU/binfmt emulation or a configured
+native multi-node builder. Docker Desktop normally includes emulation; on Linux,
+have an administrator configure it. The Makefile does not install privileged
+emulators or restart Docker/k3s services.
+
+The default registry is the existing k3s HTTP registry at `100.0.0.2:30500`.
+`buildkitd.toml` enables HTTP for this endpoint in a dedicated Buildx builder;
+it does not modify the Docker daemon. If changing the registry, also provide a
+matching `BUILDKIT_CONFIG` for that registry's HTTP/TLS configuration. An existing
+builder can be selected with `BUILDER`; its registry configuration must already
+be correct. The registry is unauthenticated and should stay on a trusted network.
+
+```sh
+make publish VERSION=0.2.0
+make apply VERSION=0.2.0
+```
+
+`publish` (alias `push`) requires native checks and passing AMD64/ARM64 runtime
+tests, then pushes a multi-architecture image under one tag. `apply` (alias
+`deploy`) checks that the credential Secret exists, publishes the image, then
+uses `helm upgrade --install --wait` to apply the chart. Images must be pushed
+before applying the Deployment so pods can pull them.
+
+Create the namespace and `julie-credentials` Secret first as described in the
+[Helm instructions](charts/julie/README.md). Helm must be on PATH, and kubectl's
+current context must point to the intended cluster. The default release and
+namespace are both `julie`. k3s nodes must be configured to pull from the HTTP
+registry; the current cluster already has this configuration.
+
+```sh
+make apply VERSION=0.2.1 NAMESPACE=julie RELEASE=julie \
+	REGISTRY=100.0.0.2:30500 IMAGE_NAME=julie \
+	CREDENTIALS_SECRET=julie-credentials
+```
+
+Use `HELM_VALUES=/path/to/values.yaml` for model, resource, or workspace overrides.
+Without `VERSION`, a UTC timestamp is used and preserved across the pipeline.
+Use a new version for each release rather than overwriting a deployed tag.
+`make help` lists the main targets. `make apply` publishes again; use it directly
+for the full workflow rather than running `publish` first.

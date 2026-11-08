@@ -1,0 +1,4 @@
+mirrors:
+  "*":
+    endpoint:
+      - "http://100.0.0.2:30500"

@@ -12,17 +12,22 @@ import (
 
 func TestLoadConfig(t *testing.T) {
 	t.Setenv("JULIE_API_KEY", "override")
-	config, model, err := LoadConfig("../../etc/model.json", "")
+	t.Setenv("JULIE_EMBEDDING_API_KEY", "embedding-override")
+	path := filepath.Join(t.TempDir(), "model.json")
+	fixture := `{"apiKey":"test-key","apiType":"chat-completions","models":[{"id":"test-model","url":"https://example.com/v1/chat/completions","toolCalling":true}],"embeddings":{"url":"https://example.com/v1/embeddings","model":"test-embedding"},"vectorStore":{"url":"http://qdrant:6333","collection":"docs"}}`
+	if err := os.WriteFile(path, []byte(fixture), 0600); err != nil {
+		t.Fatal(err)
+	}
+	config, model, err := LoadConfig(path, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if config.APIKey != "override" || model.ID != "llama3.3:70b-bedrock" || !model.ToolCalling {
+	if config.APIKey != "override" || config.EmbeddingAPIKey != "embedding-override" || config.Embeddings.Model != "test-embedding" || config.VectorStore.Collection != "docs" || model.ID != "test-model" || !model.ToolCalling {
 		t.Fatalf("unexpected config or model")
 	}
-	if _, _, err := LoadConfig("../../etc/model.json", "missing"); err == nil {
+	if _, _, err := LoadConfig(path, "missing"); err == nil {
 		t.Fatal("expected missing model error")
 	}
-	path := filepath.Join(t.TempDir(), "model.json")
 	if err := os.WriteFile(path, []byte(`{"models":[{"id":"bad","url":"file:///etc/passwd","apiType":"chat-completions"}]}`), 0600); err != nil {
 		t.Fatal(err)
 	}

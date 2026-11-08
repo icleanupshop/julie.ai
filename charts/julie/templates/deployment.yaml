@@ -1,0 +1,124 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "julie.fullname" . }}
+  labels:
+    {{- include "julie.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "julie.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "julie.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: agent
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: julie
+          image: {{ printf "%s:%s" (required "image.repository is required" .Values.image.repository) .Values.image.tag | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - "-listen"
+            - ":8080"
+            - "-config"
+            - "/etc/julie/model.json"
+            - "-workspace"
+            - "/workspace"
+            - "-max-steps"
+            - {{ .Values.agent.maxSteps | quote }}
+            - "-timeout"
+            - {{ .Values.agent.timeout | quote }}
+            {{- if not .Values.workspace.toolsEnabled }}
+            - "-no-tools"
+            {{- end }}
+          env:
+            - name: JULIE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "credentials.existingSecret is required" .Values.credentials.existingSecret }}
+                  key: {{ .Values.credentials.apiKeyKey }}
+            - name: JULIE_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.credentials.existingSecret }}
+                  key: {{ .Values.credentials.authTokenKey }}
+            - name: JULIE_EMBEDDING_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.credentials.existingSecret }}
+                  key: {{ .Values.credentials.embeddingApiKeyKey }}
+                  optional: true
+          ports:
+            - name: http
+              containerPort: 8080
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 2
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: model-config
+              mountPath: /etc/julie
+              readOnly: true
+            - name: workspace
+              mountPath: /workspace
+              readOnly: true
+      volumes:
+        - name: model-config
+          configMap:
+            name: {{ include "julie.fullname" . }}-config
+        - name: workspace
+          {{- if .Values.workspace.existingClaim }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.workspace.existingClaim }}
+            readOnly: true
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

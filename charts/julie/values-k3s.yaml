@@ -1,0 +1,4 @@
+knowledge:
+  enabled: true
+  local:
+    enabled: true

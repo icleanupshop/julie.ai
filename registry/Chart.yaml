@@ -1,0 +1,6 @@
+apiVersion: v2
+name: registry
+description: Persistent Distribution registry for the local k3s control-plane node
+type: application
+version: 0.1.0
+appVersion: "3.0.0"

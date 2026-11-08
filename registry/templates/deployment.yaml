@@ -1,0 +1,108 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "registry.fullname" . }}
+  labels:
+    {{- include "registry.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "registry.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "registry.selectorLabels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: registry
+          image: {{ printf "%s:%s" .Values.image.repository .Values.image.tag | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["registry"]
+          args: ["serve", "/etc/distribution/config.yml"]
+          ports:
+            - name: registry
+              containerPort: 5000
+          startupProbe:
+            tcpSocket:
+              port: registry
+            periodSeconds: 2
+            failureThreshold: 30
+          readinessProbe:
+            tcpSocket:
+              port: registry
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: registry
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/distribution
+              readOnly: true
+            - name: data
+              mountPath: /var/lib/registry
+            - name: tmp
+              mountPath: /tmp
+            {{- if .Values.auth.existingSecret }}
+            - name: auth
+              mountPath: /etc/registry/auth
+              readOnly: true
+            {{- end }}
+            {{- if .Values.tls.existingSecret }}
+            - name: tls
+              mountPath: /etc/registry/tls
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "registry.fullname" . }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ default (include "registry.fullname" .) .Values.persistence.existingClaim }}
+        - name: tmp
+          emptyDir: {}
+        {{- if .Values.auth.existingSecret }}
+        - name: auth
+          secret:
+            secretName: {{ .Values.auth.existingSecret }}
+            items:
+              - key: {{ .Values.auth.htpasswdKey }}
+                path: htpasswd
+        {{- end }}
+        {{- if .Values.tls.existingSecret }}
+        - name: tls
+          secret:
+            secretName: {{ .Values.tls.existingSecret }}
+        {{- end }}
+      nodeSelector:
+        {{- toYaml .Values.nodeSelector | nindent 8 }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

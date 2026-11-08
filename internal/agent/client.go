@@ -11,6 +11,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"julie.ai/internal/knowledge"
 )
 
 type Model struct {
@@ -21,9 +23,12 @@ type Model struct {
 }
 
 type Config struct {
-	APIKey  string  `json:"apiKey"`
-	APIType string  `json:"apiType"`
-	Models  []Model `json:"models"`
+	APIKey          string                      `json:"apiKey"`
+	APIType         string                      `json:"apiType"`
+	Models          []Model                     `json:"models"`
+	Embeddings      knowledge.EmbeddingConfig   `json:"embeddings"`
+	VectorStore     knowledge.VectorStoreConfig `json:"vectorStore"`
+	EmbeddingAPIKey string                      `json:"-"`
 }
 
 func LoadConfig(path, modelID string) (Config, Model, error) {
@@ -37,6 +42,9 @@ func LoadConfig(path, modelID string) (Config, Model, error) {
 	}
 	if key, ok := os.LookupEnv("JULIE_API_KEY"); ok {
 		config.APIKey = key
+	}
+	if key, ok := os.LookupEnv("JULIE_EMBEDDING_API_KEY"); ok {
+		config.EmbeddingAPIKey = key
 	}
 	for _, model := range config.Models {
 		if modelID != "" && model.ID != modelID {

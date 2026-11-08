@@ -1,0 +1,46 @@
+image:
+  repository: registry
+  tag: "3.0.0"
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+service:
+  type: ClusterIP
+  port: 5000
+  nodePort: 30500
+
+persistence:
+  existingClaim: ""
+  storageClass: local-path
+  size: 20Gi
+  keep: true
+
+auth:
+  existingSecret: ""
+  htpasswdKey: htpasswd
+
+tls:
+  existingSecret: ""
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: "1"
+    memory: 512Mi
+
+nodeSelector:
+  kubernetes.io/hostname: rp4-01
+  node-role.kubernetes.io/control-plane: "true"
+
+tolerations:
+  - key: node-role.kubernetes.io/control-plane
+    operator: Exists
+    effect: NoSchedule
+  - key: node-role.kubernetes.io/master
+    operator: Exists
+    effect: NoSchedule
