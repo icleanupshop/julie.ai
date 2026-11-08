@@ -59,6 +59,45 @@ func TestAgentToolLoopAndHistory(t *testing.T) {
 	}
 }
 
+func TestLoadSoulAndSystemPrompt(t *testing.T) {
+	if soul, err := LoadSoul(""); err != nil || soul != "" {
+		t.Fatalf("empty path: soul=%q err=%v", soul, err)
+	}
+	path := filepath.Join(t.TempDir(), "soul.md")
+	if err := os.WriteFile(path, []byte("\nMy name is Julie and I consider myself female.\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	soul, err := LoadSoul(path)
+	if err != nil || soul != "My name is Julie and I consider myself female." {
+		t.Fatalf("soul=%q err=%v", soul, err)
+	}
+	agent := NewWithSoul(nil, nil, 1, soul)
+	if !strings.Contains(agent.history[0].Content, systemPrompt) || !strings.Contains(agent.history[0].Content, soul) {
+		t.Fatalf("system prompt did not preserve the base prompt and soul: %q", agent.history[0].Content)
+	}
+	if got := NewWithSoul(nil, nil, 1, " \n").history[0].Content; got != systemPrompt {
+		t.Fatalf("empty soul changed the system prompt: %q", got)
+	}
+}
+
+func TestLoadSoulRejectsInvalidFiles(t *testing.T) {
+	for name, data := range map[string][]byte{
+		"oversized":    []byte(strings.Repeat("x", maxSoulBytes+1)),
+		"invalid utf8": {0xff},
+		"empty":        []byte(" \n\t "),
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "soul.md")
+			if err := os.WriteFile(path, data, 0600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := LoadSoul(path); err == nil {
+				t.Fatal("expected soul file validation error")
+			}
+		})
+	}
+}
+
 type testKnowledge struct {
 	query string
 	limit int

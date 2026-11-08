@@ -41,6 +41,10 @@ spec:
             - "/etc/julie/model.json"
             - "-workspace"
             - "/workspace"
+            {{- if .Values.soul.existingConfigMap }}
+            - "-soul-file"
+            - "/run/julie-soul/soul.md"
+            {{- end }}
             - "-max-steps"
             - {{ .Values.agent.maxSteps | quote }}
             - "-timeout"
@@ -98,10 +102,23 @@ spec:
             - name: workspace
               mountPath: /workspace
               readOnly: true
+            {{- if .Values.soul.existingConfigMap }}
+            - name: soul
+              mountPath: /run/julie-soul
+              readOnly: true
+            {{- end }}
       volumes:
         - name: model-config
           configMap:
             name: {{ include "julie.fullname" . }}-config
+        {{- if .Values.soul.existingConfigMap }}
+        - name: soul
+          configMap:
+            name: {{ .Values.soul.existingConfigMap | quote }}
+            items:
+              - key: {{ .Values.soul.key | quote }}
+                path: soul.md
+        {{- end }}
         - name: workspace
           {{- if .Values.workspace.existingClaim }}
           persistentVolumeClaim:

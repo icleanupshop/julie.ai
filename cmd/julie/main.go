@@ -29,6 +29,7 @@ func run() error {
 	prompt := flag.String("prompt", "", "Ask a single question and exit")
 	listen := flag.String("listen", "", "Serve the HTTP API at this address (requires JULIE_AUTH_TOKEN)")
 	ingest := flag.String("ingest", "", "Ingest a .md/.txt file or directory into the configured knowledge store")
+	soulFile := flag.String("soul-file", "", "Optional operator-provided identity and style guidance file")
 	noTools := flag.Bool("no-tools", false, "Disable workspace tools")
 	maxSteps := flag.Int("max-steps", 8, "Maximum model calls per question")
 	timeout := flag.Duration("timeout", 3*time.Minute, "Total timeout per question")
@@ -43,6 +44,10 @@ func run() error {
 		return fmt.Errorf("ingest, listen, and prompt modes cannot be combined")
 	}
 	config, model, err := agent.LoadConfig(*configPath, *modelID)
+	if err != nil {
+		return err
+	}
+	soul, err := agent.LoadSoul(*soulFile)
 	if err != nil {
 		return err
 	}
@@ -71,7 +76,7 @@ func run() error {
 		}
 		defer root.Close()
 	}
-	julie := agent.New(agent.NewClient(config, model), root, *maxSteps)
+	julie := agent.NewWithSoul(agent.NewClient(config, model), root, *maxSteps, soul)
 	julie.Knowledge = store
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -81,7 +86,7 @@ func run() error {
 			return fmt.Errorf("JULIE_AUTH_TOKEN is required in server mode")
 		}
 		handler := newHTTPHandler(token, *timeout, func(requestCtx context.Context, question string) (string, error) {
-			return agent.New(julie.Client, root, *maxSteps).Ask(requestCtx, question)
+			return agent.NewWithSoul(julie.Client, root, *maxSteps, soul).Ask(requestCtx, question)
 		})
 		return serveHTTP(ctx, *listen, handler, *timeout)
 	}

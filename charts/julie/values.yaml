@@ -29,6 +29,10 @@ workspace:
   toolsEnabled: false
   existingClaim: ""
 
+soul:
+  existingConfigMap: ""
+  key: soul.md
+
 knowledge:
   enabled: false
   embeddings:

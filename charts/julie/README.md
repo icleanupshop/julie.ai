@@ -85,6 +85,24 @@ and configure `knowledge.embeddings` and `knowledge.vectorStore`.
 Document contents are sent to the in-cluster embedding service and persisted in
 Qdrant. Both services have ClusterIP-only access; ingest only approved material.
 
+## Soul File
+
+The k3s values file expects an operator-managed ConfigMap named `julie-soul`.
+Create it from a file outside the repository; the file contents are not stored
+in Git or the container image:
+
+```sh
+kubectl create configmap julie-soul -n julie \
+  --from-file=soul.md=/path/outside/repo/soul.md \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+The chart mounts it read-only at `/run/julie-soul`, outside the agent's
+workspace, and loads it once when Julie starts. The file is limited to 16 KiB of
+UTF-8 text. After changing the ConfigMap, restart the Deployment so the new
+contents are loaded. ConfigMaps are not secret storage; use a Secret instead if
+the text contains confidential material.
+
 ## Call the Agent
 
 ```sh

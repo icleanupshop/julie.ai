@@ -2,3 +2,6 @@ knowledge:
   enabled: true
   local:
     enabled: true
+
+soul:
+  existingConfigMap: julie-soul
