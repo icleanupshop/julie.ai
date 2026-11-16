@@ -1,0 +1,6 @@
+apiVersion: v2
+name: logging
+description: Cluster-wide container log collection with Fluent Bit and Loki
+type: application
+version: 0.1.0
+appVersion: "3.6.1"

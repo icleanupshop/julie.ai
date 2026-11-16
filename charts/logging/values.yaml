@@ -1,0 +1,29 @@
+loki:
+  image:
+    repository: grafana/loki
+    tag: 3.6.1
+    pullPolicy: IfNotPresent
+  storage:
+    size: 20Gi
+    storageClassName: nfs-client
+  retention: 168h
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+fluentBit:
+  image:
+    repository: fluent/fluent-bit
+    tag: 3.2.10
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi

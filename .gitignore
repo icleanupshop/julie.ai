@@ -34,3 +34,5 @@ julie-sessions.db*
 # Editor/IDE
 # .idea/
 # .vscode/
+.swp
+.vscode
