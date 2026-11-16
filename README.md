@@ -1,8 +1,27 @@
 # julie.ai
 
-Julie is a Go command-line AI agent using the chat-completions model configured
-in `etc/model.json`. It supports interactive conversations and a bounded tool
-loop with read-only workspace access. It uses only the Go standard library.
+Julie is a Go AI agent that connects to an OpenAI-compatible chat-completions
+endpoint. It can run as an interactive command-line assistant or an HTTP service,
+and uses a bounded tool loop to answer questions with workspace files and
+retrieved knowledge.
+
+## Project Overview
+
+- **Agent and tools:** Read-only file access and document search are available
+	locally or through an authenticated MCP service.
+- **Conversations:** HTTP sessions persist transcripts in SQLite. When configured,
+	conversation turns are embedded into a separate Qdrant memory collection.
+- **Document knowledge:** Explicit ingestion embeds Markdown and text documents
+	for retrieval from Qdrant using a configured embeddings service.
+- **Deployment:** Helm charts support Julie on Kubernetes or k3s, with optional
+	local Ollama embeddings, Qdrant storage, and an MCP service. A separate chart
+	provides a private container registry; a logging chart is being scaffolded.
+- **Builds:** The Makefile runs checks and builds AMD64 and ARM64 images for
+	publication and deployment.
+
+Prompts, retrieved content, and conversation memory may be sent to configured
+model and embedding providers. The HTTP API has no caller authentication or
+session ownership checks; keep it on a trusted network.
 
 ## Run
 
