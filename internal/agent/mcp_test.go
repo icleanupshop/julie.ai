@@ -8,11 +8,39 @@ import (
 	"testing"
 )
 
+type testRemoteMCP struct {
+	calls []FunctionCall
+}
+
+func (remote *testRemoteMCP) Tools(context.Context) ([]Tool, error) {
+	return []Tool{{Type: "function", Function: ToolFunction{
+		Name:        "telegram_send_message",
+		Description: "Send a Telegram message.",
+		Parameters: map[string]any{
+			"type":                 "object",
+			"properties":           map[string]any{"chat_id": map[string]string{"type": "integer"}, "text": map[string]string{"type": "string"}},
+			"required":             []string{"chat_id", "text"},
+			"additionalProperties": false,
+		},
+	}}}, nil
+}
+
+func (remote *testRemoteMCP) Call(_ context.Context, call FunctionCall) (string, error) {
+	remote.calls = append(remote.calls, call)
+	return `{"sent":true}`, nil
+}
+
+func (remote *testRemoteMCP) Close() error { return nil }
+
 func TestMCPToolsRoundTripAndAuthentication(t *testing.T) {
 	root := testWorkspace(t)
 	defer root.Close()
 	searcher := &testKnowledge{}
-	handler, err := NewMCPHTTPHandler(NewMCPServer(root, searcher), "test-token")
+	mcpServer, err := NewMCPServer(root, searcher)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler, err := NewMCPHTTPHandler(mcpServer, "test-token")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,5 +86,35 @@ func TestMCPToolsRoundTripAndAuthentication(t *testing.T) {
 	}
 	if _, err := remote.Call(context.Background(), FunctionCall{Name: "shell", Arguments: `{}`}); err == nil {
 		t.Fatal("unexpectedly allowed a tool outside the allowlist")
+	}
+}
+
+func TestMCPServerProxiesRemoteTelegramTools(t *testing.T) {
+	provider := &testRemoteMCP{}
+	mcpServer, err := NewMCPServer(nil, nil, provider)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler, err := NewMCPHTTPHandler(mcpServer, "test-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	remote, err := NewMCPToolClient(context.Background(), server.URL+"/mcp", "test-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer remote.Close()
+	tools, err := remote.Tools(context.Background())
+	if err != nil || len(tools) != 1 || tools[0].Function.Name != "telegram_send_message" {
+		t.Fatalf("tools=%+v err=%v", tools, err)
+	}
+	result, err := remote.Call(context.Background(), FunctionCall{Name: "telegram_send_message", Arguments: `{"chat_id":42,"text":"hello"}`})
+	if err != nil || result != `{"sent":true}` {
+		t.Fatalf("result=%q err=%v", result, err)
+	}
+	if len(provider.calls) != 1 || provider.calls[0].Name != "telegram_send_message" || !strings.Contains(provider.calls[0].Arguments, "hello") {
+		t.Fatalf("unexpected remote calls: %+v", provider.calls)
 	}
 }

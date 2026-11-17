@@ -52,6 +52,7 @@ build-amd64 build-arm64: build-%:
 	mkdir -p "$(BUILD_DIR)/$*"
 	CGO_ENABLED=0 GOOS=linux GOARCH=$* $(GO) build -trimpath -ldflags='-s -w' -o "$(BUILD_DIR)/$*/julie" ./cmd/julie
 	CGO_ENABLED=0 GOOS=linux GOARCH=$* $(GO) build -trimpath -ldflags='-s -w' -o "$(BUILD_DIR)/$*/julie-mcp" ./cmd/julie-mcp
+	CGO_ENABLED=0 GOOS=linux GOARCH=$* $(GO) build -trimpath -ldflags='-s -w' -o "$(BUILD_DIR)/$*/julie-telegram" ./cmd/julie-telegram
 
 test-compile: test-compile-amd64 test-compile-arm64
 

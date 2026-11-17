@@ -1,0 +1,6 @@
+apiVersion: v2
+name: telegram
+description: Telegram bot with allowlisted conversations, RAG history, and MCP tools for Julie
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

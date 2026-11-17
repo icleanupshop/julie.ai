@@ -46,7 +46,27 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	handler, err := agent.NewMCPHTTPHandler(agent.NewMCPServer(root, store), token)
+	var remotes []agent.MCPToolProvider
+	telegramURL := os.Getenv("JULIE_TELEGRAM_MCP_URL")
+	if telegramURL != "" {
+		telegramToken := os.Getenv("JULIE_TELEGRAM_MCP_TOKEN")
+		if telegramToken == "" {
+			return fmt.Errorf("JULIE_TELEGRAM_MCP_TOKEN is required when JULIE_TELEGRAM_MCP_URL is set")
+		}
+		connectCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		remote, err := agent.NewMCPToolClient(connectCtx, telegramURL, telegramToken)
+		cancel()
+		if err != nil {
+			return fmt.Errorf("connect Telegram MCP: %w", err)
+		}
+		defer remote.Close()
+		remotes = append(remotes, remote)
+	}
+	mcpServer, err := agent.NewMCPServer(root, store, remotes...)
+	if err != nil {
+		return err
+	}
+	handler, err := agent.NewMCPHTTPHandler(mcpServer, token)
 	if err != nil {
 		return err
 	}

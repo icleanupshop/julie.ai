@@ -13,11 +13,13 @@ COPY go.mod go.sum ./
 COPY cmd/ ./cmd/
 COPY internal/ ./internal/
 RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w" -o /out/julie ./cmd/julie && \
-	CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w" -o /out/julie-mcp ./cmd/julie-mcp
+	CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w" -o /out/julie-mcp ./cmd/julie-mcp && \
+	CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w" -o /out/julie-telegram ./cmd/julie-telegram
 
 FROM gcr.io/distroless/static:nonroot AS runtime
 COPY --from=build /out/julie /julie
 COPY --from=build /out/julie-mcp /julie-mcp
+COPY --from=build /out/julie-telegram /julie-telegram
 WORKDIR /workspace
 USER 65532:65532
 EXPOSE 8080

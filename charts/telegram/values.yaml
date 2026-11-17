@@ -1,0 +1,47 @@
+replicaCount: 1
+
+image:
+  repository: julie
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+service:
+  port: 8082
+
+telegram:
+  credentialsSecret: telegram-credentials
+  botTokenKey: bot-token
+  allowedChatIDs: []
+  allowedUserIDs: []
+  pollTimeoutSeconds: 30
+  agentTimeoutSeconds: 180
+
+julie:
+  apiURL: http://julie-julie:8080
+
+state:
+  storage: 256Mi
+  storageClassName: ""
+  accessMode: ReadWriteOnce
+
+mcp:
+  credentialsSecret: telegram-mcp-auth
+  tokenKey: token
+
+embeddings:
+  url: http://julie-julie-embeddings.julie.svc.cluster.local:11434/v1/embeddings
+  model: nomic-embed-text
+  existingSecret: julie-credentials
+  apiKeyKey: embedding-api-key
+
+vectorStore:
+  url: http://julie-julie-qdrant.julie.svc.cluster.local:6333
+  collection: telegram_history
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 96Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi

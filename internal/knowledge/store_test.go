@@ -194,6 +194,75 @@ func TestConversationMemoryLifecycle(t *testing.T) {
 	}
 }
 
+func TestTelegramHistoryPersistenceAndChatScopedSearch(t *testing.T) {
+	collectionCreated := false
+	var storedID string
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch {
+		case request.Method == http.MethodPost && request.URL.Path == "/v1/embeddings":
+			_, _ = writer.Write([]byte(`{"data":[{"embedding":[0.25,0.75]}]}`))
+		case request.Method == http.MethodGet && request.URL.Path == "/collections/telegram":
+			if !collectionCreated {
+				http.NotFound(writer, request)
+				return
+			}
+			_, _ = writer.Write([]byte(`{"result":{"config":{"params":{"vectors":{"size":2,"distance":"Cosine"}}}}}`))
+		case request.Method == http.MethodPut && request.URL.Path == "/collections/telegram":
+			collectionCreated = true
+			_, _ = writer.Write([]byte(`{"result":true,"status":"ok"}`))
+		case request.Method == http.MethodPut && request.URL.Path == "/collections/telegram/points":
+			var payload struct {
+				Points []point `json:"points"`
+			}
+			if err := json.NewDecoder(request.Body).Decode(&payload); err != nil || len(payload.Points) != 1 {
+				t.Errorf("unexpected Telegram upsert: %+v err=%v", payload, err)
+			} else {
+				item := payload.Points[0]
+				if item.Payload["chat_id"] != float64(42) || item.Payload["user_id"] != float64(7) || item.Payload["message_id"] != float64(19) || item.Payload["direction"] != "incoming" {
+					t.Errorf("unexpected Telegram payload: %+v", item.Payload)
+				}
+				if storedID != "" && item.ID != storedID {
+					t.Errorf("duplicate message changed point ID: first=%q second=%q", storedID, item.ID)
+				}
+				storedID = item.ID
+			}
+			_, _ = writer.Write([]byte(`{"result":{"operation_id":1},"status":"ok"}`))
+		case request.Method == http.MethodPost && request.URL.Path == "/collections/telegram/points/search":
+			var payload struct {
+				Filter struct {
+					Must []struct {
+						Key   string `json:"key"`
+						Match struct {
+							Value float64 `json:"value"`
+						} `json:"match"`
+					} `json:"must"`
+				} `json:"filter"`
+			}
+			if err := json.NewDecoder(request.Body).Decode(&payload); err != nil || len(payload.Filter.Must) != 1 || payload.Filter.Must[0].Key != "chat_id" || payload.Filter.Must[0].Match.Value != 42 {
+				t.Errorf("search was not scoped to chat 42: %+v err=%v", payload, err)
+			}
+			_, _ = writer.Write([]byte(`{"result":[{"score":0.9,"payload":{"source":"telegram/42","text":"hello"}}]}`))
+		default:
+			t.Errorf("unexpected request: %s %s", request.Method, request.URL.String())
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	store, err := NewStore(EmbeddingConfig{URL: server.URL + "/v1/embeddings", Model: "embed-test"}, VectorStoreConfig{URL: server.URL, Collection: "telegram"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := store.RememberTelegramMessage(context.Background(), 42, 7, 19, "incoming", "hello"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	results, err := store.SearchTelegramHistory(context.Background(), 42, "greeting", 3)
+	if err != nil || len(results) != 1 || results[0].Source != "telegram/42" || results[0].Text != "hello" {
+		t.Fatalf("results=%+v err=%v", results, err)
+	}
+}
+
 func TestDeleteConversationBeforeMemoryCollectionExists(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.Method != http.MethodPost || request.URL.Path != "/collections/memories/points/delete" {

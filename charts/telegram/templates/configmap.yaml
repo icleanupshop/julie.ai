@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "telegram.fullname" . }}-config
+  labels:
+    {{- include "telegram.labels" . | nindent 4 }}
+data:
+  config.json: |
+    {{- dict "allowed_chat_ids" .Values.telegram.allowedChatIDs "allowed_user_ids" .Values.telegram.allowedUserIDs "poll_timeout_seconds" .Values.telegram.pollTimeoutSeconds "agent_timeout_seconds" .Values.telegram.agentTimeoutSeconds "julie_url" (required "julie.apiURL is required" .Values.julie.apiURL) "embeddings" (dict "url" (required "embeddings.url is required" .Values.embeddings.url) "model" (required "embeddings.model is required" .Values.embeddings.model)) "vector_store" (dict "url" (required "vectorStore.url is required" .Values.vectorStore.url) "collection" (.Values.vectorStore.collection | default "telegram_history")) | toPrettyJson | nindent 4 }}

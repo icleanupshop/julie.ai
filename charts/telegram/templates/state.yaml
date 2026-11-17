@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "telegram.fullname" . }}-state
+  labels:
+    {{- include "telegram.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.state.accessMode | quote }}
+  {{- with .Values.state.storageClassName }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.state.storage }}

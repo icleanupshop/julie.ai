@@ -85,6 +85,20 @@ func validateEndpoint(raw, name string) error {
 }
 
 func (store *Store) Search(ctx context.Context, query string, limit int) ([]Result, error) {
+	return store.search(ctx, query, limit, nil)
+}
+
+func (store *Store) SearchTelegramHistory(ctx context.Context, chatID int64, query string, limit int) ([]Result, error) {
+	if chatID < 1 || strings.TrimSpace(query) == "" || limit < 1 {
+		return nil, fmt.Errorf("chat ID, query, and positive limit are required")
+	}
+	filter := map[string]any{"must": []any{
+		map[string]any{"key": "chat_id", "match": map[string]any{"value": chatID}},
+	}}
+	return store.search(ctx, query, limit, filter)
+}
+
+func (store *Store) search(ctx context.Context, query string, limit int, filter map[string]any) ([]Result, error) {
 	vector, err := store.embed(ctx, query)
 	if err != nil {
 		return nil, err
@@ -92,11 +106,14 @@ func (store *Store) Search(ctx context.Context, query string, limit int) ([]Resu
 	if err := store.ensureCollection(ctx, len(vector)); err != nil {
 		return nil, err
 	}
-	request := struct {
-		Vector      []float64 `json:"vector"`
-		Limit       int       `json:"limit"`
-		WithPayload bool      `json:"with_payload"`
-	}{Vector: vector, Limit: limit, WithPayload: true}
+	request := map[string]any{
+		"vector":       vector,
+		"limit":        limit,
+		"with_payload": true,
+	}
+	if filter != nil {
+		request["filter"] = filter
+	}
 	var response struct {
 		Result []struct {
 			Score   float64                    `json:"score"`
@@ -118,6 +135,45 @@ func (store *Store) Search(ctx context.Context, query string, limit int) ([]Resu
 		}
 	}
 	return results, nil
+}
+
+func (store *Store) RememberTelegramMessage(ctx context.Context, chatID, userID, messageID int64, direction, text string) error {
+	if chatID < 1 || messageID < 1 || (direction != "incoming" && direction != "outgoing") || strings.TrimSpace(text) == "" {
+		return fmt.Errorf("valid chat, message, direction, and text are required")
+	}
+	chunks := splitChunks(strings.TrimSpace(text))
+	points := make([]point, 0, len(chunks))
+	source := fmt.Sprintf("telegram/%d", chatID)
+	messageSource := fmt.Sprintf("%s/%d/%s", source, messageID, direction)
+	for index, chunk := range chunks {
+		vector, err := store.embed(ctx, chunk)
+		if err != nil {
+			return fmt.Errorf("embed Telegram message: %w", err)
+		}
+		if err := store.ensureCollection(ctx, len(vector)); err != nil {
+			return err
+		}
+		points = append(points, point{
+			ID:     pointID(messageSource, index, chunk),
+			Vector: vector,
+			Payload: map[string]any{
+				"source":     source,
+				"title":      "Telegram message",
+				"text":       chunk,
+				"chat_id":    chatID,
+				"user_id":    userID,
+				"message_id": messageID,
+				"direction":  direction,
+			},
+		})
+	}
+	for start := 0; start < len(points); start += upsertBatchSize {
+		end := min(start+upsertBatchSize, len(points))
+		if err := store.qdrant(ctx, http.MethodPut, "/points?wait=true", map[string]any{"points": points[start:end]}, nil); err != nil {
+			return fmt.Errorf("store Telegram message: %w", err)
+		}
+	}
+	return nil
 }
 
 func (store *Store) SearchMemory(ctx context.Context, query string, limit int) ([]Result, error) {

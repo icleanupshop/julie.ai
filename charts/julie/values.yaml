@@ -38,6 +38,11 @@ mcp:
   port: 8081
   existingSecret: ""
   tokenKey: token
+  telegram:
+    enabled: false
+    endpoint: "http://telegram-telegram:8082/mcp"
+    existingSecret: telegram-mcp-auth
+    tokenKey: token
   replicas: 1
   nodeSelector: {}
   affinity: {}

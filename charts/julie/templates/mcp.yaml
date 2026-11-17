@@ -91,6 +91,15 @@ spec:
                 secretKeyRef:
                   name: {{ required "mcp.existingSecret is required when MCP is enabled" .Values.mcp.existingSecret }}
                   key: {{ .Values.mcp.tokenKey }}
+            {{- if .Values.mcp.telegram.enabled }}
+            - name: JULIE_TELEGRAM_MCP_URL
+              value: {{ required "mcp.telegram.endpoint is required when Telegram MCP is enabled" .Values.mcp.telegram.endpoint | quote }}
+            - name: JULIE_TELEGRAM_MCP_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "mcp.telegram.existingSecret is required when Telegram MCP is enabled" .Values.mcp.telegram.existingSecret }}
+                  key: {{ .Values.mcp.telegram.tokenKey }}
+            {{- end }}
             - name: JULIE_EMBEDDING_API_KEY
               valueFrom:
                 secretKeyRef:

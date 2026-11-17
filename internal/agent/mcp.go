@@ -18,9 +18,11 @@ import (
 const maxMCPToolResultBytes = 256 << 10
 
 var allowedMCPTools = map[string]struct{}{
-	"list_files":       {},
-	"read_file":        {},
-	"search_knowledge": {},
+	"list_files":              {},
+	"read_file":               {},
+	"search_knowledge":        {},
+	"telegram_send_message":   {},
+	"telegram_search_history": {},
 }
 
 type MCPToolProvider interface {
@@ -113,6 +115,9 @@ func (remote *MCPToolClient) Call(ctx context.Context, call FunctionCall) (strin
 	if err != nil {
 		if reconnectErr := remote.reconnect(ctx); reconnectErr != nil {
 			return "", fmt.Errorf("call MCP tool: %v; reconnect: %w", err, reconnectErr)
+		}
+		if call.Name == "telegram_send_message" {
+			return "", fmt.Errorf("tool call outcome is unknown; message was not retried to avoid duplicate delivery: %w", err)
 		}
 		result, err = remote.client.CallTool(ctx, request)
 	}

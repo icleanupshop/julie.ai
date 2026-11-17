@@ -8,7 +8,9 @@ retrieved knowledge.
 ## Project Overview
 
 - **Agent and tools:** Read-only file access and document search are available
-	locally or through an authenticated MCP service.
+	locally or through an authenticated MCP service. The optional
+	[Telegram chart](charts/telegram/README.md) routes allowlisted private messages
+	through individual Julie sessions and supports chat-scoped history retrieval.
 - **Conversations:** HTTP sessions persist transcripts in SQLite. When configured,
 	conversation turns are embedded into a separate Qdrant memory collection.
 - **Document knowledge:** Explicit ingestion embeds Markdown and text documents
